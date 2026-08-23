@@ -1,0 +1,19 @@
+[Unit]
+Description=Trafilatura-Local Web Content Extraction Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/trafilatura-local
+Environment=PATH=%h/projects/trafilatura-local/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PORT=8990
+Environment=HOST=127.0.0.1
+Environment=MAX_CHARS=200000
+ExecStart=%h/projects/trafilatura-local/venv/bin/python %h/projects/trafilatura-local/server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
