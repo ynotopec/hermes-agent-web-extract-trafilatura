@@ -15,11 +15,12 @@ JavaScript rendering, PDFs and anti-bot bypasses are outside this service's scop
 curl --fail http://127.0.0.1:8990/health
 ```
 
-The installer uses `~/projects/trafilatura-local`, creates a virtualenv, reconciles
-requirements on every run, installs the user unit and restarts the service.
-A user service starts with the user manager. For startup before login, an
-administrator may enable lingering with `loginctl enable-linger USER`.
-`enable` alone does not guarantee startup before login.
+The installer uses `~/projects/trafilatura-local`, fast-forwards the checkout to
+`origin/main`, creates a virtualenv, reconciles requirements, installs the user
+unit and restarts the service, then verifies `/health` and one real extraction.
+A user service starts with the user manager. For startup before login, enable
+lingering with `sudo loginctl enable-linger USER` (the installer prints this
+when lingering is off); `enable` alone does not guarantee startup before login.
 
 Alternatively:
 

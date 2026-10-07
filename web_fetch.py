@@ -3,14 +3,17 @@
 import argparse
 import asyncio
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 
+SERVICE_URL = (os.getenv("TRAFILATURA_URL") or "http://127.0.0.1:8990").rstrip("/")
+
 
 def get_url(url, output_format="markdown", limit=15000):
     req = urllib.request.Request(
-        "http://127.0.0.1:8990/extract",
+        f"{SERVICE_URL}/extract",
         data=json.dumps({"urls": [url], "format": output_format, "max_chars": limit}).encode(),
         headers={"Content-Type": "application/json"},
     )
