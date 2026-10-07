@@ -11,7 +11,7 @@ VENV="$DIR/venv"
 # 1. Clone, or fast-forward an existing checkout.
 if [ ! -d "$DIR/.git" ]; then
     echo "Cloning repo..."
-    git clone https://github.com/ynotopec/trafilatura-local "$DIR"
+    git clone https://github.com/ynotopec/hermes-agent-web-extract-trafilatura "$DIR"
 else
     echo "Updating checkout..."
     git -C "$DIR" fetch --quiet origin
