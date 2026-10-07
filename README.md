@@ -32,6 +32,20 @@ python3 -m venv venv
 
 To remove the service: `./uninstall.sh` (add `--purge` to also delete the checkout).
 
+## Reproducibility
+
+- **Dependencies** are pinned in `requirements.lock` (full transitive tree,
+  CPython 3.12); `install.sh` installs it when present, else `requirements.txt`.
+  Regenerate after changing `requirements.txt`:
+  `pip install -r requirements.txt && pip freeze > requirements.lock`.
+- **Interpreter**: `.python-version` records the tested CPython (3.12).
+  `install.sh` requires >= 3.10 and recreates the venv when it was built on a
+  different minor version; override with `PYTHON=/path/to/python3`.
+- **Paths / port**: `TRAFILATURA_DIR` and `TRAFILATURA_PORT` (defaults
+  `~/projects/trafilatura-local`, `8990`) are substituted into the installed unit.
+- The test suite is offline and deterministic; CI runs it on 3.10–3.14 **and**
+  once against the pinned lockfile.
+
 ## Hermes Agent integration
 
 This service ships a Hermes web-extract provider under `hermes/`. Install it

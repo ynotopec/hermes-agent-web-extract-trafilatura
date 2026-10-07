@@ -3,6 +3,7 @@ label: Trafilatura (local)
 kind: backend
 version: 1.0.0
 author: ynotopec
+requires_hermes: ">=0.21.5"
 homepage: https://github.com/ynotopec/hermes-agent-web-extract-trafilatura
 description: >
   Local Trafilatura web extraction backend for Hermes Agent. Calls a loopback
