@@ -18,10 +18,10 @@ mkdir -p "$plugins_dir" "$skills_dir"
 
 rm -rf "$plugins_dir/trafilatura"          # replace, never nest on re-run
 cp -R "$here/plugins/web/trafilatura" "$plugins_dir/trafilatura"
-cp -R "$here/skills/trafilatura-local" "$skills_dir/trafilatura-local"
+cp -R "$here/skills/web-extract-local" "$skills_dir/web-extract-local"
 
 echo "Installed provider plugin -> $plugins_dir/trafilatura"
-echo "Installed skill           -> $skills_dir/trafilatura-local"
+echo "Installed skill           -> $skills_dir/web-extract-local"
 
 if command -v hermes >/dev/null 2>&1; then
   hermes plugins enable web/trafilatura || true
