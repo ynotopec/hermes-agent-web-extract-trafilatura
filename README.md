@@ -45,11 +45,11 @@ hermes gateway restart                    # a running gateway keeps its provider
 
 `./hermes/install.sh` copies `hermes/plugins/web/trafilatura/` to
 `~/.hermes/plugins/web/trafilatura/` and the companion skill to
-`~/.hermes/skills/web-extract-local/`. The provider calls this service over
+`~/.hermes/skills/web-extract/`. The provider calls this service over
 loopback and falls back to the Firecrawl keyless cloud extractor when a page
 comes back empty (JS-heavy or blocked pages), so listings never come back thin.
 User plugins are disabled by default — `hermes plugins enable web/trafilatura`
-(the installer runs it). See `hermes/skills/web-extract-local/SKILL.md`.
+(the installer runs it). See `hermes/skills/web-extract/SKILL.md`.
 
 ## API and CLI
 

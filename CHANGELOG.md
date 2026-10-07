@@ -3,7 +3,7 @@
 ## Unreleased
 
 - **Hermes Agent integration**: a provider plugin (`hermes/plugins/web/trafilatura/`),
-  a companion skill (`hermes/skills/web-extract-local/`) and `hermes/install.sh`
+  a companion skill (`hermes/skills/web-extract/`) and `hermes/install.sh`
   to wire the service into Hermes (`web.extract_backend: trafilatura`). See the README.
 - **`title` populated** from page metadata (was always empty).
 - **Links kept on listing pages**: when Trafilatura drops every link on a
