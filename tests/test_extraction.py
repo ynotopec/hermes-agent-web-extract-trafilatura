@@ -117,6 +117,38 @@ def test_real_html_extraction():
     assert "\x01" not in content
 
 
+def _listing_html(count=10):
+    entries = "".join(
+        f'<h2><a href="https://example.com/{i}">owner / repo{i}</a></h2><p>Description number {i}.</p>'
+        for i in range(count)
+    )
+    return f"<html><body><main>{entries}</main></body></html>"
+
+
+def test_link_preserving_fallback_on_listing(monkeypatch):
+    """Trafilatura drops every link on a link-dense listing -> keep the entry links."""
+    monkeypatch.setattr(extraction.trafilatura, "extract", lambda *a, **k: "prose with no links at all")
+    content = extraction.extract_content(_listing_html(), "https://example.com")
+    assert "](https://example.com/0)" in content
+    assert "owner / repo0" in content
+
+
+def test_no_link_fallback_when_trafilatura_kept_links(monkeypatch):
+    monkeypatch.setattr(extraction.trafilatura, "extract", lambda *a, **k: "prose with a [link](https://kept.example)")
+    assert extraction.extract_content(_listing_html(), "https://example.com") == "prose with a [link](https://kept.example)"
+
+
+def test_no_link_fallback_when_page_is_link_sparse(monkeypatch):
+    html = "<html><body><main><h2><a href='https://example.com/0'>only entry</a></h2><p>text</p></main></body></html>"
+    monkeypatch.setattr(extraction.trafilatura, "extract", lambda *a, **k: "prose with no links")
+    assert extraction.extract_content(html, "https://example.com") == "prose with no links"
+
+
+def test_link_fallback_skipped_for_non_markdown(monkeypatch):
+    monkeypatch.setattr(extraction.trafilatura, "extract", lambda *a, **k: "plain text no links")
+    assert extraction.extract_content(_listing_html(), "https://example.com", output_format="txt") == "plain text no links"
+
+
 def test_request_body_limit():
     with TestClient(server.app) as client:
         assert client.post("/extract", content=b"x" * 256001).status_code == 413

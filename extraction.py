@@ -2,6 +2,7 @@
 import asyncio
 import ipaddress
 import os
+import re
 import socket
 from urllib.parse import urljoin, urlsplit
 
@@ -12,6 +13,104 @@ MAX_BYTES = int(os.getenv("MAX_BYTES", "5000000"))
 FETCH_TIMEOUT = float(os.getenv("FETCH_TIMEOUT", "30"))
 MAX_REDIRECTS = 5
 FORMATS = ("markdown", "txt", "html")
+
+# Trafilatura's main-content heuristic can classify the anchor/heading markup that
+# carries the actual data on directory pages (dashboards, "trending"/index listings)
+# as boilerplate: it returns the surrounding prose with every link dropped, silently
+# losing the entry names. When that happens on a link-dense page the main region is
+# re-extracted keeping its links and headings.
+_MARKDOWN_LINK_RE = re.compile(r"\]\(https?://")
+_MIN_ANCHORS_FOR_LINK_FALLBACK = 8
+_SKIP_TAGS = ("script", "style", "noscript", "template", "svg", "form", "header", "footer", "nav", "aside")
+_HEADING_LEVELS = {"h1": "#", "h2": "##", "h3": "###", "h4": "####", "h5": "#####", "h6": "######"}
+_BLOCK_LEAF_TAGS = ("p", "blockquote", "figcaption", "dt", "dd", "pre", "td", "th")
+
+
+def _collapse_whitespace(text):
+    return re.sub(r"[ \t\r\f\v]+", " ", re.sub(r"\n+", " ", text)).strip()
+
+
+def _prepare_tree(document):
+    """Parse *document* with lxml and drop chrome that is pure navigation noise."""
+    from lxml import html as lxml_html
+
+    tree = lxml_html.fromstring(document)
+    for tag in _SKIP_TAGS:
+        for element in list(tree.iter(tag)):
+            parent = element.getparent()
+            if parent is not None:
+                parent.remove(element)
+    return tree
+
+
+def _main_region(tree):
+    main = tree.find(".//main")
+    if main is not None:
+        return main
+    return tree.body if tree.body is not None else tree
+
+
+def _count_main_anchors(tree, base_url):
+    """Number of web anchors inside the main region (relative hrefs resolved)."""
+    count = 0
+    for anchor in _main_region(tree).iter("a"):
+        if urljoin(base_url, anchor.get("href") or "").startswith(("http://", "https://")):
+            count += 1
+    return count
+
+
+def _render_inline(element, base_url):
+    parts = []
+    if element.text:
+        parts.append(element.text)
+    for child in element:
+        tag = child.tag.lower() if isinstance(child.tag, str) else ""
+        inner = _render_inline(child, base_url)
+        if tag == "a" and inner.strip():
+            href = urljoin(base_url, child.get("href") or "")
+            parts.append(f"[{_collapse_whitespace(inner)}]({href})"
+                         if href.startswith(("http://", "https://")) else inner)
+        elif tag in ("strong", "b") and inner.strip():
+            parts.append(f"**{inner.strip()}**")
+        elif tag in ("em", "i") and inner.strip():
+            parts.append(f"*{inner.strip()}*")
+        elif tag == "br":
+            parts.append(" ")
+        else:
+            parts.append(inner)
+        if child.tail:
+            parts.append(child.tail)
+    return "".join(parts)
+
+
+def _render_block(element, out, base_url):
+    tag = element.tag.lower() if isinstance(element.tag, str) else ""
+    if tag in _HEADING_LEVELS:
+        text = _collapse_whitespace(_render_inline(element, base_url))
+        if text:
+            out.append(f"{_HEADING_LEVELS[tag]} {text}")
+        return
+    if tag == "li":
+        text = _collapse_whitespace(_render_inline(element, base_url))
+        if text:
+            out.append(f"- {text}")
+        return
+    if tag in _BLOCK_LEAF_TAGS:
+        text = _collapse_whitespace(_render_inline(element, base_url))
+        if text:
+            out.append(text)
+        return
+    for child in element:
+        if isinstance(child.tag, str):
+            _render_block(child, out, base_url)
+
+
+def _render_link_preserving(tree, base_url):
+    """Minimal HTML->markdown over the main region, keeping headings, list items and
+    anchors. Only used when Trafilatura dropped every link (see ``extract_content``)."""
+    out = []
+    _render_block(_main_region(tree), out, base_url)
+    return re.sub(r"\n{3,}", "\n\n", "\n\n".join(out)).strip()
 
 
 class ExtractionError(ValueError):
@@ -153,12 +252,25 @@ async def fetch_page(client, url):
 def extract_content(document, url, output_format="markdown"):
     if output_format not in FORMATS:
         raise ExtractionError("Unsupported output format")
+    content = ""
     for options in ({"favor_precision": True}, {"favor_recall": True}):
-        content = trafilatura.extract(
+        extracted = trafilatura.extract(
             document, url=url, output_format=output_format,
             include_comments=False, include_tables=True, include_links=True,
             **options,
         )
-        if content and content.strip():
-            return content.strip()
-    raise ExtractionError("No extractable content found")
+        if extracted and extracted.strip():
+            content = extracted.strip()
+            break
+    if not content:
+        raise ExtractionError("No extractable content found")
+    if output_format == "markdown" and not _MARKDOWN_LINK_RE.search(content):
+        # Trafilatura dropped every link: on a link-dense page it mistook the entry
+        # markup for boilerplate and kept only the surrounding prose, losing the
+        # entry names (e.g. GitHub Trending keeps descriptions but not owner/repo).
+        tree = _prepare_tree(document)
+        if _count_main_anchors(tree, url) >= _MIN_ANCHORS_FOR_LINK_FALLBACK:
+            linked = _render_link_preserving(tree, url)
+            if _MARKDOWN_LINK_RE.search(linked):
+                return linked
+    return content
