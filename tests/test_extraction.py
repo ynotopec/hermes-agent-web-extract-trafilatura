@@ -202,7 +202,8 @@ async def test_origin_pools_do_not_share_tls(monkeypatch):
 async def test_compressed_response_rejected(public_dns, monkeypatch):
     import gzip
     monkeypatch.setattr(extraction, "MAX_BYTES", 100)
-    response = lambda _: httpx.Response(200, headers={"content-type": "text/html", "content-encoding": "gzip"}, content=gzip.compress(b"a" * 1000))
+    def response(_):
+        return httpx.Response(200, headers={"content-type": "text/html", "content-encoding": "gzip"}, content=gzip.compress(b"a" * 1000))
     async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
         with pytest.raises(extraction.ExtractionError, match="Compressed"):
             await extraction.fetch_page(client, "https://example.com")
@@ -210,7 +211,6 @@ async def test_compressed_response_rejected(public_dns, monkeypatch):
 
 async def test_extraction_does_not_block_health(monkeypatch):
     import threading
-    import time
     entered = threading.Event()
     release = threading.Event()
     async def fetch(client, url):
