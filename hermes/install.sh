@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the Trafilatura-Local provider plugin (+ skill) into a Hermes home.
+# Install the Trafilatura-Local provider plugin into a Hermes home.
 #
 #   HERMES_HOME=/path/to/.hermes ./hermes/install.sh
 #
@@ -13,15 +13,12 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 hermes_home="${HERMES_HOME:-$HOME/.hermes}"
 
 plugins_dir="$hermes_home/plugins/web"
-skills_dir="$hermes_home/skills"
-mkdir -p "$plugins_dir" "$skills_dir"
+mkdir -p "$plugins_dir"
 
 rm -rf "$plugins_dir/trafilatura"          # replace, never nest on re-run
 cp -R "$here/plugins/web/trafilatura" "$plugins_dir/trafilatura"
-cp -R "$here/skills/web-extract" "$skills_dir/web-extract"
 
 echo "Installed provider plugin -> $plugins_dir/trafilatura"
-echo "Installed skill           -> $skills_dir/web-extract"
 
 if command -v hermes >/dev/null 2>&1; then
   hermes plugins enable web/trafilatura || true

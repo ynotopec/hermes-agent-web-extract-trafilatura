@@ -4,6 +4,9 @@
 
 - `install.sh` honours `TRAFILATURA_REF` to pin the checkout to a tag/commit
   (e.g. `TRAFILATURA_REF=v0.3.0 ./install.sh`).
+- Removed the shipped Hermes skill: the backend is transparent, so there is
+  nothing special to do during a `web_extract`. Deployment lives in this README;
+  `hermes/install.sh` now installs only the provider plugin.
 
 ## 0.3.0 — 2026-10-07
 

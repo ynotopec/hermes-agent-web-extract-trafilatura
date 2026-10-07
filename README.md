@@ -54,18 +54,18 @@ This service ships a Hermes web-extract provider under `hermes/`. Install it
 into your Hermes home, point the extract backend at it, then restart the gateway:
 
 ```bash
-./hermes/install.sh                       # copies the plugin + skill, enables it
+./hermes/install.sh                       # copies the plugin, enables it
 hermes config set web.extract_backend trafilatura
 hermes gateway restart                    # a running gateway keeps its provider registry
 ```
 
 `./hermes/install.sh` copies `hermes/plugins/web/trafilatura/` to
-`~/.hermes/plugins/web/trafilatura/` and the companion skill to
-`~/.hermes/skills/web-extract/`. The provider calls this service over
+`~/.hermes/plugins/web/trafilatura/`. The provider calls this service over
 loopback and falls back to the Firecrawl keyless cloud extractor when a page
 comes back empty (JS-heavy or blocked pages), so listings never come back thin.
 User plugins are disabled by default — `hermes plugins enable web/trafilatura`
-(the installer runs it). See `hermes/skills/web-extract/SKILL.md`.
+(the installer runs it). No agent skill ships with it: the backend is
+transparent, so nothing special is required at extraction time.
 
 ## API and CLI
 
