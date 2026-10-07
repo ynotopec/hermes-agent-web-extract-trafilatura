@@ -1,0 +1,13 @@
+name: web-trafilatura
+label: Trafilatura (local)
+kind: backend
+version: 1.0.0
+author: ynotopec
+homepage: https://github.com/ynotopec/hermes-agent-web-extract-trafilatura
+description: >
+  Local Trafilatura web extraction backend for Hermes Agent. Calls a loopback
+  HTTP service (127.0.0.1:8990) for readable HTML extraction — no API key, no
+  rate limits, static HTML only, with a Firecrawl keyless fallback for JS-heavy
+  pages.
+provides_web_providers:
+  - trafilatura

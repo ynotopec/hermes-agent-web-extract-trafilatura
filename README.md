@@ -2,7 +2,10 @@
 
 Local HTTP service and CLI for readable web extraction with Trafilatura.
 HTML extraction favors precision, then retries with recall if no content is found.
-Tables and links are retained. Plain text responses are supported directly.
+Tables and links are retained; on link-dense listing pages (dashboards, "trending"
+or index pages) where Trafilatura would drop every link, the main region is
+re-extracted keeping its headings, list items and anchors. Plain text responses
+are supported directly.
 JavaScript rendering, PDFs and anti-bot bypasses are outside this service's scope.
 
 ## Install and run
@@ -26,6 +29,25 @@ python3 -m venv venv
 ./venv/bin/trafilatura-server
 ```
 
+## Hermes Agent integration
+
+This service ships a Hermes web-extract provider under `hermes/`. Install it
+into your Hermes home, point the extract backend at it, then restart the gateway:
+
+```bash
+./hermes/install.sh                       # copies the plugin + skill, enables it
+hermes config set web.extract_backend trafilatura
+hermes gateway restart                    # a running gateway keeps its provider registry
+```
+
+`./hermes/install.sh` copies `hermes/plugins/web/trafilatura/` to
+`~/.hermes/plugins/web/trafilatura/` and the companion skill to
+`~/.hermes/skills/trafilatura-local/`. The provider calls this service over
+loopback and falls back to the Firecrawl keyless cloud extractor when a page
+comes back empty (JS-heavy or blocked pages), so listings never come back thin.
+User plugins are disabled by default — `hermes plugins enable web/trafilatura`
+(the installer runs it). See `hermes/skills/trafilatura-local/SKILL.md`.
+
 ## API and CLI
 
 ```bash
@@ -37,7 +59,8 @@ python3 web_fetch.py https://example.com --format plain --limit 15000
 ```
 
 POST formats: `markdown`, `txt`, `html`. Results preserve input order and have
-`url`, `title` (reserved, currently empty), `content`, `error`, and `metadata`.
+`url`, `title` (from page metadata, empty when unavailable), `content`, `error`,
+and `metadata`.
 Metadata includes the final URL, truncation flag and elapsed milliseconds,
 including semaphore wait time. Individual extraction failures populate `error`;
 invalid payloads return HTTP 422, and queue overload returns HTTP 503.

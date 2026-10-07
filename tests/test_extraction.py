@@ -149,6 +149,27 @@ def test_link_fallback_skipped_for_non_markdown(monkeypatch):
     assert extraction.extract_content(_listing_html(), "https://example.com", output_format="txt") == "plain text no links"
 
 
+def test_extract_title_from_metadata():
+    html = "<html><head><title>My Page Title</title></head><body><article><p>" + "Useful sentence. " * 30 + "</p></article></body></html>"
+    assert extraction.extract_title(html, "https://example.com") == "My Page Title"
+
+
+def test_extract_title_missing_returns_empty():
+    assert extraction.extract_title("<html><body><p>x</p></body></html>", "https://example.com") == ""
+
+
+def test_server_populates_title(monkeypatch):
+    html = ("<html><head><title>Service Title</title></head><body><article><p>"
+            + "Useful sentence. " * 30 + "</p></article></body></html>").encode()
+    async def fetch(client, url):
+        return html, url, "text/html"
+    monkeypatch.setattr(server, "fetch_page", fetch)
+    with TestClient(server.app) as client:
+        result = client.post("/extract", json={"urls": ["https://example.com"]}).json()["results"][0]
+    assert result["title"] == "Service Title"
+    assert "Useful sentence." in result["content"]
+
+
 def test_request_body_limit():
     with TestClient(server.app) as client:
         assert client.post("/extract", content=b"x" * 256001).status_code == 413

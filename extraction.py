@@ -274,3 +274,13 @@ def extract_content(document, url, output_format="markdown"):
             if _MARKDOWN_LINK_RE.search(linked):
                 return linked
     return content
+
+
+def extract_title(document, url):
+    """Best-effort page title from Trafilatura metadata; ``""`` when unavailable."""
+    try:
+        metadata = trafilatura.extract_metadata(document, default_url=url)
+    except Exception:
+        return ""
+    title = getattr(metadata, "title", None) if metadata is not None else None
+    return _collapse_whitespace(title) if title else ""
