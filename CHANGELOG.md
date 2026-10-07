@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Reproducibility**: pinned `requirements.lock` (full transitive tree) used by
+  `install.sh`, `.python-version`, a Python >= 3.10 guard with venv recreation on
+  interpreter change, `TRAFILATURA_DIR`/`TRAFILATURA_PORT`/`PYTHON` overrides, a
+  CI job that tests the lock, and `requires_hermes` on the provider manifest.
 - **Hermes Agent integration**: a provider plugin (`hermes/plugins/web/trafilatura/`),
   a companion skill (`hermes/skills/web-extract/`) and `hermes/install.sh`
   to wire the service into Hermes (`web.extract_backend: trafilatura`). See the README.
