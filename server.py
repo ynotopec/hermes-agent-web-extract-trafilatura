@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import trafilatura
 
-from extraction import ExtractionError, extract_content, fetch_page, make_client
+from extraction import ExtractionError, extract_content, extract_title, fetch_page, make_client
 
 MAX_CHARS = int(os.getenv("MAX_CHARS", "200000"))
 MAX_URLS = 20
@@ -81,8 +81,13 @@ async def extract(payload: ExtractRequest, request: Request):
         try:
             async with request.app.state.slots:
                 document, final_url, mime = await fetch_page(request.app.state.client, url)
-                content = (document.strip() if mime == "text/plain" else
-                           await asyncio.to_thread(extract_content, document, final_url, payload.format))
+                if mime == "text/plain":
+                    text = document.decode("utf-8", "replace") if isinstance(document, bytes) else document
+                    content = text.strip()
+                    result["title"] = content.split("\n", 1)[0].strip()[:300]
+                else:
+                    content = await asyncio.to_thread(extract_content, document, final_url, payload.format)
+                    result["title"] = await asyncio.to_thread(extract_title, document, final_url)
                 result["content"] = content[:payload.max_chars]
                 result["metadata"] = {
                     "extractor": "plain" if mime == "text/plain" else "trafilatura",
