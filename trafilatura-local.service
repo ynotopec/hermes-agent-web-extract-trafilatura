@@ -10,6 +10,11 @@ Environment=PORT=8990
 Environment=HOST=127.0.0.1
 Environment=MAX_CHARS=200000
 ExecStart=%h/projects/trafilatura-local/venv/bin/python %h/projects/trafilatura-local/server.py
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+MemoryMax=512M
+TasksMax=64
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

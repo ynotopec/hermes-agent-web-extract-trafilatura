@@ -1,108 +1,97 @@
 # Trafilatura-Local
 
-Service HTTP local pour l'extraction de contenu web basé sur **Trafilatura** — le meilleur outil open-source de text extraction, avec un **F1-score de 0.924** contre 0.690 pour beautifulsoup4.
+Local HTTP service and CLI for readable web extraction with Trafilatura.
+HTML extraction favors precision, then retries with recall if no content is found.
+Tables and links are retained. Plain text responses are supported directly.
+JavaScript rendering, PDFs and anti-bot bypasses are outside this service's scope.
 
-## Pourquoi ?
-
-`web_fetch.py` original utilisait une extraction HTML→markdown basée sur des regex, avec un F1-estimé ~0.69. Cela causait des problèmes de boilerplate et de détection de contenu.
-
-Après analyse de la littérature et benchmarks officiels (ScrapingHub/Zyte, Trafilatura eval), **trafilatura est le meilleur outil open-source** :
-- F1 0.924 vs 0.690 (beautifulsoup4) et 0.663 (html2text)
-- Boilerplate removal robust
-- Gestion des HTML malformés
-- Multi-langue (FR, EN, DE, etc.)
-
-Le service trafilatura local (port 8990) existait déjà via le plugin `web-extract`. Ce projet le versionne proprement avec un systemd service persistant.
-
-## Architecture
-
-```
-web_fetch.py → HTTP request → Trafilatura-Local (FastAPI, port 8990)
-                                       ↓
-                                trafilatura.extract()
-                                       ↓
-                                Markdown output
-```
-
-## Installation
+## Install and run
 
 ```bash
-# 1. Créer l'environnement virtuel (déjà fait)
-python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
-
-# 2. Installer le service systemd
-cp trafilatura-local.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable trafilatura-local.service
-
-# 3. Démarrer
-systemctl --user start trafilatura-local.service
+./install.sh
+curl --fail http://127.0.0.1:8990/health
 ```
 
-## Utilisation
+The installer uses `~/projects/trafilatura-local`, creates a virtualenv, reconciles
+requirements on every run, installs the user unit and restarts the service.
+A user service starts with the user manager. For startup before login, an
+administrator may enable lingering with `loginctl enable-linger USER`.
+`enable` alone does not guarantee startup before login.
 
-### API
+Alternatively:
 
-**Health check :**
 ```bash
-curl http://localhost:8990/health
+python3 -m venv venv
+./venv/bin/python -m pip install .
+./venv/bin/trafilatura-server
 ```
 
-**Extraction single/multiple URL :**
+## API and CLI
+
 ```bash
-# GET
-curl 'http://localhost:8990/extract?url=https://example.com'
-
-# POST
-curl -X POST -H 'Content-Type: application/json' \
-  -d '{"urls": ["https://example.com"], "format": "markdown"}' \
-  http://localhost:8990/extract
+curl 'http://127.0.0.1:8990/extract?url=https://example.com'
+curl --fail -H 'Content-Type: application/json' \
+  -d '{"urls":["https://example.com"],"format":"markdown","max_chars":15000}' \
+  http://127.0.0.1:8990/extract
+python3 web_fetch.py https://example.com --format plain --limit 15000
 ```
 
-### Depuis web_fetch.py
+POST formats: `markdown`, `txt`, `html`. Results preserve input order and have
+`url`, `title` (reserved, currently empty), `content`, `error`, and `metadata`.
+Metadata includes the final URL, truncation flag and elapsed milliseconds,
+including semaphore wait time. Individual extraction failures populate `error`;
+invalid payloads return HTTP 422, and queue overload returns HTTP 503.
+For plain text sources, the actual output format is reported as `txt`.
 
-Remplacer l'appel curl local par une requête HTTP au service :
+When the local service is unavailable, the CLI runs the same downloader and
+extractor directly. It does not bypass service rejection or URL filtering with
+curl. This fallback requires the project's Python dependencies.
 
-```python
-# Avant (ancien web_fetch.py)
-import subprocess
-result = subprocess.run(["python3", "web_fetch.py", url], ...)
+## Limits and security
 
-# Après (nouveau)
-import requests
-resp = requests.post("http://localhost:8990/extract", json={
-    "urls": [url], "format": "markdown"
-})
-content = resp.json()["results"][0]["content"]
-```
+| Setting | Default | Meaning |
+|---|---:|---|
+| `HOST` | `127.0.0.1` | Bind address |
+| `PORT` | `8990` | Listen port |
+| `MAX_CHARS` | 200000 | Default and maximum API output characters |
+| `MAX_BYTES` | 5000000 | Maximum decoded download bytes per page |
+| `FETCH_TIMEOUT` | 30 | Total download deadline, including DNS and redirects |
+| `CONCURRENCY` | 4 | Concurrent download/extraction jobs per server process |
 
-## Fichiers
+Request bodies are capped at 256000 bytes. Requests contain 1–20 URLs, each at most 8192 characters. At most 64 URL jobs
+are admitted per process. Redirects are limited to five. Streaming enforces the
+byte cap even when Content-Length is absent. The downloader requests identity
+encoding and rejects compressed responses to avoid decompression bombs. Output
+limits apply after extraction, and truncation may cut Markdown or HTML syntax.
 
-| Fichier | Rôle |
-|---------|------|
-| `server.py` | Serveur FastAPI principal |
-| `pyproject.toml` | Méta-données du projet |
-| `requirements.txt` | Dépendances Python |
-| `trafilatura-local.service` | Service systemd (--user) |
-| `.gitignore` | Ignore le venv et fichiers temporaires |
+Only public HTTP(S) destinations are accepted, without URL credentials. Every
+redirect is checked. All resolved addresses must be public; the connection is
+pinned to a validated address to prevent DNS rebinding. The original Host and
+TLS server name are retained, with certificate verification enabled. Separate
+origin pools prevent TLS connections from being reused across unrelated hosts
+sharing an IP. Connection pools are cached for up to 32 origins; additional
+origins use temporary transports. Environment proxies are disabled deliberately.
+Private intranet and cloud metadata endpoints are blocked, including in the CLI.
 
-## Survie au reboot
+Keep the default loopback bind. The API has no authentication; exposing it needs
+an authenticated reverse proxy and rate limiting. Extracted web text remains
+untrusted input for agents. Systemd applies NoNewPrivileges, PrivateTmp, a private
+umask, and memory/task limits (availability depends on the host's user manager).
+Logs go to journald rather than an unbounded duplicate log file.
 
-Le service systemd est enable → automatiquement démarré à chaque boot. Vérification :
+Extraction runs in a worker thread so it does not block the event loop. This
+improves responsiveness but does not promise CPU parallelism or a hard deadline
+for the parser. Worker processes would be needed for hard parser timeouts.
+
+## Validation
+
 ```bash
-systemctl --user is-enabled trafilatura-local  # enabled
-systemctl --user is-active trafilatura-local   # active
+python -m pip install '.[test]'
+python -m pytest -q
 ```
 
-## Benchmarks de référence
-
-Source : [ScrapingHub/Zyte Article Extraction Benchmark](https://github.com/scrapinghub/article-extraction-benchmark) + [Trafilatura Evaluation](https://trafilatura.readthedocs.io/en/latest/evaluation.html)
-
-| Outil | F1 | Précision | Rappel |
-|-------|-----|-----------|--------|
-| **Trafilatura (standard)** | **0.924** | 0.906 | 0.943 |
-| Trafilatura (precision) | 0.920 | 0.925 | 0.915 |
-| magic-html | 0.889 | 0.887 | 0.891 |
-| justext | 0.862 | 0.864 | 0.859 |
-| beautifulsoup4 | 0.690 | 0.532 | 0.980 |
-| html2text | 0.663 | 0.525 | 0.900 |
+Tests cover public-destination filtering, redirect rejection, DNS pinning,
+size/deadline controls, payload validation, ordering, truncation and CLI fallback.
+No deployment-specific F1 score or latency improvement is claimed. Evaluate
+quality and p50/p95 latency on representative articles, documentation, wiki pages
+and tables. Upstream evaluation: https://trafilatura.readthedocs.io/en/latest/evaluation.html
