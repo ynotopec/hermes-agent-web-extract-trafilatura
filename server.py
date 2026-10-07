@@ -96,9 +96,9 @@ async def extract(payload: ExtractRequest, request: Request):
                 }
         except ExtractionError as exc:
             result["error"] = str(exc)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 — one URL must not fail the batch
             logger.exception("Content extraction failed")
-            result["error"] = "Content extraction failed"
+            result["error"] = f"Content extraction failed: {type(exc).__name__}"
         result["metadata"]["response_time_ms"] = round((time.perf_counter() - start) * 1000, 2)
         return result
 

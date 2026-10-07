@@ -8,7 +8,15 @@ import sys
 import urllib.error
 import urllib.request
 
+def _env_timeout(default=35.0):
+    try:
+        return float(os.getenv("TRAFILATURA_TIMEOUT") or default)
+    except ValueError:
+        return default
+
+
 SERVICE_URL = (os.getenv("TRAFILATURA_URL") or "http://127.0.0.1:8990").rstrip("/")
+SERVICE_TIMEOUT = _env_timeout()
 
 
 def get_url(url, output_format="markdown", limit=15000):
@@ -18,7 +26,7 @@ def get_url(url, output_format="markdown", limit=15000):
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=35) as response:
+        with urllib.request.urlopen(req, timeout=SERVICE_TIMEOUT) as response:
             result = json.load(response)["results"][0]
             return result["content"], result.get("error")
     except urllib.error.HTTPError as exc:
