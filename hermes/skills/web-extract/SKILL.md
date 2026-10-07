@@ -1,33 +1,40 @@
 ---
-name: web-extract-local
-description: "Use when fetching or reading any URL. Hermes web_extract is backed by the local Trafilatura-Local service (:8990) with a Firecrawl fallback; browser for JS-heavy pages."
-version: "3.0.0"
+name: web-extract
+description: "Use when fetching or reading any URL. Prefer web_extract."
+version: "1.0.0"
 author: ynotopec
 license: MIT
 metadata:
   hermes:
-    tags: [web, extract, local, no-api-key, trafilatura]
+    tags: [web, extract, trafilatura, no-api-key]
     related_skills: [web-tools-diagnostic]
 ---
 
-# Web Extract Local
+# Web Extract
 
-How to fetch readable content from a URL with this service, and how the local
-extraction backend is deployed. Companion repo:
-https://github.com/ynotopec/hermes-agent-web-extract-trafilatura
+How to fetch readable content from a URL. `web_extract` returns clean markdown
+through the local **Trafilatura-Local** service (`127.0.0.1:8990`, Trafilatura,
+F1 ~0.92) — no API key, no rate limits — and **falls back to Firecrawl keyless**
+for URLs the service returns empty (or errors on), so JS-heavy / blocked pages
+still come back.
 
+Companion repo: https://github.com/ynotopec/hermes-agent-web-extract-trafilatura
 Static HTML only — no JavaScript rendering, PDFs, or anti-bot bypasses.
+
+## When to Use
+
+- The user asks to read, fetch, open, or summarise the content of a URL/page.
+- Before reaching for `browser_navigate` or a hand-rolled curl pipeline.
+- When `web_extract` returns thin/garbled content and you need to know why.
 
 ## What to do
 
-- **Just call the `web_extract` tool** once the provider is wired in. It routes
-  to the local **Trafilatura-Local** service (`127.0.0.1:8990`, F1 ~0.92) through
-  the `trafilatura` provider — no API key, no rate limits.
-- A URL the local service returns empty (or errors on) **falls back to Firecrawl
-  keyless**, so JS-heavy / blocked pages still come back.
+- **Just call the `web_extract` tool** once the provider is wired in.
 - **`browser_navigate`** only when `web_extract` returns empty/garbled (<200
   chars) — real JavaScript rendering is out of the service's scope.
 - CLI equivalent (same service): `python3 web_fetch.py "<url>" [--format plain]`.
+- `web_extract` truncates at `web.extract_char_limit` (default 15000) head+tail
+  and stores the full text under `~/.hermes/cache/web/` for `read_file`.
 
 ## Deploy the service
 
