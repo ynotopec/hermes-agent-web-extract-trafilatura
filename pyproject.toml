@@ -16,10 +16,17 @@ py-modules = ["server", "extraction", "web_fetch"]
 dependencies = {file = ["requirements.txt"]}
 
 [project.optional-dependencies]
-test = ["pytest>=8", "pytest-asyncio>=0.23"]
+test = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
 
 [project.scripts]
 trafilatura-server = "server:main"
+
+[tool.ruff]
+line-length = 200
+
+[tool.ruff.lint]
+# pycodestyle errors + pyflakes: the sane minimum, matching the existing style.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

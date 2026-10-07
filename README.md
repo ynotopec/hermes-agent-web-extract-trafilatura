@@ -30,6 +30,8 @@ python3 -m venv venv
 ./venv/bin/trafilatura-server
 ```
 
+To remove the service: `./uninstall.sh` (add `--purge` to also delete the checkout).
+
 ## Hermes Agent integration
 
 This service ships a Hermes web-extract provider under `hermes/`. Install it
