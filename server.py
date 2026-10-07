@@ -57,7 +57,7 @@ class BodyLimitMiddleware:
         await self.app(scope, replay, send)
 
 
-app = FastAPI(title="Trafilatura-Local", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Trafilatura-Local", version="0.3.0", lifespan=lifespan)
 app.add_middleware(BodyLimitMiddleware)
 
 
@@ -69,7 +69,7 @@ class ExtractRequest(BaseModel):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "trafilatura-local", "version": "0.2.0",
+    return {"status": "ok", "service": "trafilatura-local", "version": "0.3.0",
             "dependencies": {"trafilatura": trafilatura.__version__}}
 
 

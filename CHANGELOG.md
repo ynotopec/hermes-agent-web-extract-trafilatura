@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-07
 
 - **Reproducibility**: pinned `requirements.lock` (full transitive tree) used by
   `install.sh`, `.python-version`, a Python >= 3.10 guard with venv recreation on
