@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `install.sh` honours `TRAFILATURA_REF` to pin the checkout to a tag/commit
+  (e.g. `TRAFILATURA_REF=v0.3.0 ./install.sh`).
+
 ## 0.3.0 — 2026-10-07
 
 - **Reproducibility**: pinned `requirements.lock` (full transitive tree) used by

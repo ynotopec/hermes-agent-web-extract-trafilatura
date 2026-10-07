@@ -43,6 +43,8 @@ To remove the service: `./uninstall.sh` (add `--purge` to also delete the checko
   different minor version; override with `PYTHON=/path/to/python3`.
 - **Paths / port**: `TRAFILATURA_DIR` and `TRAFILATURA_PORT` (defaults
   `~/projects/trafilatura-local`, `8990`) are substituted into the installed unit.
+- **Pin a release**: `TRAFILATURA_REF=v0.3.0 ./install.sh` checks the checkout out
+  at that tag/commit instead of following `main` (leaves a detached HEAD).
 - The test suite is offline and deterministic; CI runs it on 3.10–3.14 **and**
   once against the pinned lockfile.
 

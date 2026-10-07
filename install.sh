@@ -5,7 +5,8 @@ echo "=== Trafilatura-Local Setup ==="
 echo "  - Updates the checkout and installs Python dependencies"
 echo "  - Configures and (re)starts the systemd --user service"
 
-# Overridable: TRAFILATURA_DIR (checkout path), TRAFILATURA_PORT, PYTHON.
+# Overridable: TRAFILATURA_DIR (checkout path), TRAFILATURA_PORT, TRAFILATURA_REF
+# (pin the checkout to a tag/commit), PYTHON.
 DIR="${TRAFILATURA_DIR:-$HOME/projects/trafilatura-local}"
 VENV="$DIR/venv"
 PORT="${TRAFILATURA_PORT:-8990}"
@@ -18,11 +19,15 @@ if ! "$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)
 fi
 WANT_PY="$("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
 
-# 1. Clone, or fast-forward an existing checkout.
+# 1. Clone, or update an existing checkout (pin to TRAFILATURA_REF when set).
 if [ ! -d "$DIR/.git" ]; then
     echo "Cloning repo..."
     mkdir -p "$(dirname "$DIR")"
     git clone https://github.com/ynotopec/hermes-agent-web-extract-trafilatura "$DIR"
+elif [ -n "${TRAFILATURA_REF:-}" ]; then
+    echo "Pinning checkout to $TRAFILATURA_REF..."
+    git -C "$DIR" fetch --quiet --tags origin
+    git -C "$DIR" checkout --quiet "$TRAFILATURA_REF"
 else
     echo "Updating checkout..."
     git -C "$DIR" fetch --quiet origin
