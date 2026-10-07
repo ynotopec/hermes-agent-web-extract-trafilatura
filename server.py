@@ -1,172 +1,123 @@
 #!/usr/bin/env python3
-"""Trafilatura-local server — HTTP service for web content extraction."""
-
-import sys
-import os
-import logging
-import time
+"""Local, bounded web extraction API."""
 import asyncio
-from typing import Optional, List
-from pathlib import Path
+import logging
+import os
+import time
+from contextlib import asynccontextmanager
+from typing import Annotated, Literal
 
-import httpx
-import trafilatura
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+import trafilatura
 
-# Setup logging
-LOG_DIR = Path.home() / ".hermes" / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+from extraction import ExtractionError, extract_content, fetch_page, make_client
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(LOG_DIR / "trafilatura_local.log"),
-    ],
-)
-logger = logging.getLogger("trafilatura_local")
+MAX_CHARS = int(os.getenv("MAX_CHARS", "200000"))
+MAX_URLS = 20
+CONCURRENCY = int(os.getenv("CONCURRENCY", "4"))
+logger = logging.getLogger(__name__)
 
-# Configuration
-PORT = int(os.environ.get("PORT", "8990"))
-HOST = os.environ.get("HOST", "127.0.0.1")
-MAX_CHARS = int(os.environ.get("MAX_CHARS", "200000"))
 
-app = FastAPI(title="Trafilatura-Local", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app):
+    app.state.pending = 0
+    app.state.slots = asyncio.Semaphore(CONCURRENCY)
+    async with make_client() as client:
+        app.state.client = client
+        yield
+
+
+class BodyLimitMiddleware:
+    """Bound JSON buffering, including requests without Content-Length."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        messages = []
+        size = 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            size += len(message.get("body", b""))
+            if size > 256000:
+                return await JSONResponse({"detail": "Request body too large"}, status_code=413)(scope, receive, send)
+            messages.append(message)
+            if not message.get("more_body", False):
+                break
+
+        async def replay():
+            if messages:
+                return messages.pop(0)
+            return await receive()
+        await self.app(scope, replay, send)
+
+
+app = FastAPI(title="Trafilatura-Local", version="0.2.0", lifespan=lifespan)
+app.add_middleware(BodyLimitMiddleware)
 
 
 class ExtractRequest(BaseModel):
-    urls: List[str]
-    format: str = Field(default="markdown", description="Output format: markdown, txt, html")
-    max_chars: Optional[int] = Field(default=200000, description="Max characters per page")
-
-
-class ExtractResult(BaseModel):
-    url: str
-    title: str = ""
-    content: str = ""
-    error: Optional[str] = None
-    metadata: dict = {}
-
-
-async def fetch_page(url: str) -> Optional[str]:
-    """Fetch a page's HTML content."""
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        try:
-            response = await client.get(url)
-            response.raise_for_status()
-            return response.text
-        except Exception as e:
-            logger.warning(f"Failed to fetch {url}: {e}")
-            return None
-
-
-def extract_content(html: str, url: str, output_format: str = "markdown") -> Optional[str]:
-    """Extract content using trafilatura with fallback strategies."""
-    try:
-        # Strategy 1: Default extraction (favor precision)
-        content = trafilatura.extract(
-            html,
-            url=url,
-            include_comments=False,
-            favor_precision=True,
-            output_format=output_format,
-        )
-        if content and len(content.strip()) > 10:
-            return content.strip()
-    except Exception as e:
-        logger.warning(f"Strategy 1 failed for {url}: {e}")
-
-    try:
-        # Strategy 2: With table extraction (favor recall)
-        content = trafilatura.extract(
-            html,
-            url=url,
-            include_comments=False,
-            include_tables=True,
-            favor_recall=True,
-            output_format=output_format,
-        )
-        if content and len(content.strip()) > 10:
-            return content.strip()
-    except Exception as e:
-        logger.warning(f"Strategy 2 failed for {url}: {e}")
-
-    return None
+    urls: list[Annotated[str, Field(min_length=1, max_length=8192)]] = Field(min_length=1, max_length=MAX_URLS)
+    format: Literal["markdown", "txt", "html"] = "markdown"
+    max_chars: int = Field(default=MAX_CHARS, ge=1, le=MAX_CHARS)
 
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
-    return {
-        "status": "ok",
-        "service": "trafilatura-local",
-        "version": "0.1.0",
-        "dependencies": {
-            "trafilatura": trafilatura.__version__ if hasattr(trafilatura, "__version__") else "installed",
-        }
-    }
+    return {"status": "ok", "service": "trafilatura-local", "version": "0.2.0",
+            "dependencies": {"trafilatura": trafilatura.__version__}}
 
 
 @app.post("/extract")
-async def extract(request: ExtractRequest):
-    """Extract content from multiple URLs concurrently."""
-    results = []
+async def extract(payload: ExtractRequest, request: Request):
+    async def process(url):
+        start = time.perf_counter()
+        result = {"url": url, "title": "", "content": "", "error": None, "metadata": {}}
+        try:
+            async with request.app.state.slots:
+                document, final_url, mime = await fetch_page(request.app.state.client, url)
+                content = (document.strip() if mime == "text/plain" else
+                           await asyncio.to_thread(extract_content, document, final_url, payload.format))
+                result["content"] = content[:payload.max_chars]
+                result["metadata"] = {
+                    "extractor": "plain" if mime == "text/plain" else "trafilatura",
+                    "format": "txt" if mime == "text/plain" else payload.format,
+                    "final_url": final_url, "truncated": len(content) > payload.max_chars,
+                }
+        except ExtractionError as exc:
+            result["error"] = str(exc)
+        except Exception:
+            logger.exception("Content extraction failed")
+            result["error"] = "Content extraction failed"
+        result["metadata"]["response_time_ms"] = round((time.perf_counter() - start) * 1000, 2)
+        return result
 
-    async def process_url(url: str):
-        start = time.time()
+    # Reject overload rather than accumulating unlimited queued fetches.
+    if request.app.state.pending + len(payload.urls) > 64:
+        return JSONResponse({"detail": "Extraction queue is full"}, status_code=503)
+    request.app.state.pending += len(payload.urls)
+    try:
+        return {"results": await asyncio.gather(*(process(url) for url in payload.urls))}
+    finally:
+        request.app.state.pending -= len(payload.urls)
 
-        # Fetch HTML
-        html = await fetch_page(url)
-        if not html:
-            results.append(ExtractResult(
-                url=url,
-                error="Failed to fetch page"
-            ))
-            return
 
-        # Extract content
-        content = extract_content(html, url, request.format)
-        if not content:
-            results.append(ExtractResult(
-                url=url,
-                error="No extractable content found"
-            ))
-            return
+@app.get("/extract")
+async def extract_get(request: Request, url: str = Query(max_length=8192)):
+    return await extract(ExtractRequest(urls=[url]), request)
 
-        # Truncate if needed
-        if request.max_chars and len(content) > request.max_chars:
-            content = content[:request.max_chars]
 
-        elapsed = time.time() - start
-
-        results.append(ExtractResult(
-            url=url,
-            content=content,
-            metadata={
-                "extractor": "trafilatura",
-                "format": request.format,
-                "response_time_ms": round(elapsed * 1000, 2),
-            }
-        ))
-
-    # Process all URLs concurrently
-    await asyncio.gather(*[process_url(url) for url in request.urls])
-
-    return {"results": [r.model_dump() for r in results]}
+def main():
+    import uvicorn
+    logging.basicConfig(level=logging.INFO)
+    uvicorn.run(app, host=os.getenv("HOST", "127.0.0.1"),
+                port=int(os.getenv("PORT", "8990")), access_log=False)
 
 
 if __name__ == "__main__":
-    import uvicorn
-
-    logger.info(f"Starting Trafilatura-Local server on {HOST}:{PORT}")
-    uvicorn.run(
-        app,
-        host=HOST,
-        port=PORT,
-        log_level="info",
-        access_log=False,
-        timeout_keep_alive=30,
-    )
+    main()
