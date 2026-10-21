@@ -163,6 +163,54 @@ Extraction runs in a worker thread so it does not block the event loop. This
 improves responsiveness but does not promise CPU parallelism or a hard deadline
 for the parser. Worker processes would be needed for hard parser timeouts.
 
+## Kubernetes deployment
+
+`k8s/` deploys the service as a Deployment (`trafilatura-service`) behind a
+ClusterIP Service named `trafilatura` on port 8990, so that a Hermes pod in
+the same namespace reaches it through the discovery variables described above.
+
+```bash
+./k8s/deploy.sh demo1
+```
+
+Design choices:
+
+- **Code and pinned dependencies travel in a ConfigMap** (`server.py`,
+  `extraction.py`, `requirements.lock`). An initContainer installs the locked
+  dependencies into a shared volume; the application container serves directly
+  from it. A `pip install` on the serving path outlasts the liveness probe and
+  produces a restart loop (the pod is killed while still installing).
+- **Plain `python:3.12-slim` image.** The cluster's internal registry is not
+  pullable from the kubelet — the node resolver does not answer for service
+  names and containerd has no insecure-registry entry — so a locally built
+  image cannot be consumed by the cluster as-is. The `Dockerfile` at the
+  repository root builds that image (verified: health check, non-root user,
+  real extraction); it becomes usable as soon as the registry is reachable
+  from the kubelet.
+- **`startupProbe`** on `/health` gates the liveness and readiness probes
+  while the application starts. Dependency installation finishes in the
+  initContainer before the application container and its probes start.
+- Each source revision uses an **immutable ConfigMap named with its checksum**.
+  The script renders its name and the `trafilatura.infocepo.com/code-sha256`
+  annotation into the pod template before applying it. Code changes trigger a
+  rollout; unchanged sources keep the same template. Old ConfigMaps are retained
+  so `kubectl rollout undo deployment/trafilatura-service` restores the matching
+  sources and dependency lock. Keep them while their ReplicaSets may be restored;
+  the script does not automatically delete historical ConfigMaps.
+- The post-deploy health check compares the version reported by `/health`
+  with the version of the source that was just deployed, so a stale pod
+  fails the deployment instead of passing it.
+- Two replicas, `runAsNonRoot`, read-only root filesystem, all capabilities
+  dropped, and `allowPrivilegeEscalation: false`, including the initContainer.
+  The temporary health-check pod also uses settings compatible with the
+  Kubernetes Restricted Pod Security Standard.
+- The manifests carry no `namespace:` field: the target namespace is passed
+  with `kubectl -n`, so the same manifests can be applied to any namespace.
+- The extraction runs on the **serving** path only against public
+  destinations: internal and private IPs are rejected (see *Limits and
+  security*), so the service cannot be used to reach cluster-internal
+  endpoints.
+
 ## Validation
 
 ```bash

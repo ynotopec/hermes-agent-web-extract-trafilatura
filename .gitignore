@@ -21,3 +21,6 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local cluster state backups (never commit)
+k8s-backup/
