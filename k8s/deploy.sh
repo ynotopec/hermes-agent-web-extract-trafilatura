@@ -20,31 +20,26 @@ REPO="$(cd "$HERE/.." && pwd)"
 
 command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found" >&2; exit 1; }
 
-echo "==> Refreshing ConfigMap ($NS/trafilatura-server) from $REPO"
-kubectl -n "$NS" create configmap trafilatura-server \
+# Keep each revision's sources available for rollout undo. Never overwrite a
+# ConfigMap referenced by an older ReplicaSet.
+CHECKSUM="$(cat "$REPO/server.py" "$REPO/extraction.py" "$REPO/requirements.lock" \
+  | sha256sum | cut -d' ' -f1)"
+CONFIGMAP="trafilatura-server-$CHECKSUM"
+echo "==> Applying immutable ConfigMap ($NS/$CONFIGMAP)"
+kubectl -n "$NS" create configmap "$CONFIGMAP" \
   --from-file=server.py="$REPO/server.py" \
   --from-file=extraction.py="$REPO/extraction.py" \
   --from-file=requirements.lock="$REPO/requirements.lock" \
-  --dry-run=client -o yaml | kubectl -n "$NS" apply -f -
-
-# The code travels in a ConfigMap, and a ConfigMap change does NOT restart
-# the pods that mount it: the running process keeps serving the code it
-# imported at start-up. `rollout status` reports "successfully rolled out"
-# without any pod ever restarting, so the new code would never reach the
-# service. Anchoring the pod template on the checksum of the sources makes
-# the Deployment roll whenever the code changes, and stay put when it does
-# not.
-echo "==> Computing source checksum"
-CHECKSUM="$(cat "$REPO/server.py" "$REPO/extraction.py" "$REPO/requirements.lock" \
-  | sha256sum | cut -d' ' -f1)"
-echo "    code checksum: $CHECKSUM"
+  --dry-run=client -o json \
+  | kubectl patch --local -f - --type=merge -p '{"immutable":true}' -o json \
+  | kubectl -n "$NS" apply -f -
 
 echo "==> Applying Deployment and Service"
-kubectl -n "$NS" apply -f "$HERE/01-deployment.yaml"
+# Render both the source reference and annotation before applying the template,
+# so a revision can never combine a new checksum with an old source reference.
+sed "s/CODE_SHA256/$CHECKSUM/g" "$HERE/01-deployment.yaml" \
+  | kubectl -n "$NS" apply -f -
 kubectl -n "$NS" apply -f "$HERE/02-service.yaml"
-kubectl -n "$NS" patch deployment trafilatura-service --type=merge \
-  -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"trafilatura.infocepo.com/code-sha256\":\"$CHECKSUM\"}}}}}" \
-  >/dev/null
 
 echo "==> Waiting for rollout"
 kubectl -n "$NS" rollout status deploy/trafilatura-service --timeout=300s
@@ -56,7 +51,9 @@ echo "==> Health check"
 EXPECTED_VERSION="$(grep -oE 'version="[0-9]+\.[0-9]+\.[0-9]+"' "$REPO/server.py" | head -1 | cut -d'"' -f2)"
 echo "    expected version: $EXPECTED_VERSION"
 kubectl -n "$NS" run trafilatura-health --rm -i --restart=Never \
-  --image=python:3.12-slim --command -- python - "$EXPECTED_VERSION" <<'PY'
+  --image=python:3.12-slim --override-type=strategic \
+  --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":10001,"runAsGroup":10001,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"trafilatura-health","securityContext":{"allowPrivilegeEscalation":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}}}]}}' \
+  --command -- python - "$EXPECTED_VERSION" <<'PY'
 import json, sys, urllib.request
 expected = sys.argv[1]
 health = json.load(urllib.request.urlopen("http://trafilatura:8990/health"))
@@ -65,4 +62,4 @@ assert health["status"] == "ok", health
 assert health["version"] == expected, (health, expected)
 PY
 
-echo "==> Service ready: http://trafilatura:$NS.svc.cluster.local:8990"
+echo "==> Service ready: http://trafilatura.$NS.svc.cluster.local:8990"

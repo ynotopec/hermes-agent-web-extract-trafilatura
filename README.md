@@ -188,18 +188,22 @@ Design choices:
   real extraction); it becomes usable as soon as the registry is reachable
   from the kubelet.
 - **`startupProbe`** on `/health` gates the liveness and readiness probes
-  while the dependencies are being installed.
-- The pod template is annotated with the checksum of the sources
-  (`trafilatura.infocepo.com/code-sha256`). A ConfigMap change does **not**
-  restart the pods that mount it, so without this annotation the Deployment
-  would report "successfully rolled out" while the running pods kept serving
-  the previous code. The checksum makes the rollout follow the code, and stay
-  put when the code does not change.
+  while the application starts. Dependency installation finishes in the
+  initContainer before the application container and its probes start.
+- Each source revision uses an **immutable ConfigMap named with its checksum**.
+  The script renders its name and the `trafilatura.infocepo.com/code-sha256`
+  annotation into the pod template before applying it. Code changes trigger a
+  rollout; unchanged sources keep the same template. Old ConfigMaps are retained
+  so `kubectl rollout undo deployment/trafilatura-service` restores the matching
+  sources and dependency lock. Keep them while their ReplicaSets may be restored;
+  the script does not automatically delete historical ConfigMaps.
 - The post-deploy health check compares the version reported by `/health`
   with the version of the source that was just deployed, so a stale pod
   fails the deployment instead of passing it.
 - Two replicas, `runAsNonRoot`, read-only root filesystem, all capabilities
-  dropped.
+  dropped, and `allowPrivilegeEscalation: false`, including the initContainer.
+  The temporary health-check pod also uses settings compatible with the
+  Kubernetes Restricted Pod Security Standard.
 - The manifests carry no `namespace:` field: the target namespace is passed
   with `kubectl -n`, so the same manifests can be applied to any namespace.
 - The extraction runs on the **serving** path only against public

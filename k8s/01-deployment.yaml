@@ -17,6 +17,8 @@ spec:
       maxUnavailable: 0
   template:
     metadata:
+      annotations:
+        trafilatura.infocepo.com/code-sha256: "CODE_SHA256"
       labels:
         app: trafilatura
     spec:
@@ -31,6 +33,11 @@ spec:
         - name: deps
           image: python:3.12-slim
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           command:
             - sh
             - -c
@@ -41,6 +48,8 @@ spec:
               readOnly: true
             - name: deps
               mountPath: /deps
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: trafilatura
           image: python:3.12-slim
@@ -108,7 +117,7 @@ spec:
       volumes:
         - name: code
           configMap:
-            name: trafilatura-server
+            name: trafilatura-server-CODE_SHA256
         - name: deps
           emptyDir: {}
         - name: tmp
