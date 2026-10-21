@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- The provider resolves the service through Kubernetes discovery
+  (`TRAFILATURA_SERVICE_HOST` / `TRAFILATURA_SERVICE_PORT`) when
+  `TRAFILATURA_URL` is unset, before falling back to `127.0.0.1:8990`. A pod
+  running next to a `trafilatura` service now finds it with no configuration.
+- `install.sh` no longer requires systemd: with no reachable user manager it
+  installs the checkout and the virtualenv and prints the command to start the
+  service (containers, CI, WSL). `TRAFILATURA_MODE=auto|systemd|none` forces
+  the behaviour.
+- `hermes/install.sh` now enables the plugin and sets
+  `web.extract_backend: trafilatura` instead of only printing the commands,
+  finds the Hermes CLI through `$HERMES_CLI`, `hermes` on `PATH` or
+  `python -m hermes_cli.main`, and verifies the plugin is listed afterwards.
+  A skipped enable step is what left `web_extract` failing with "no
+  registered web extract provider has that name".
+- The provider's "service unreachable" error mentions the non-systemd start
+  command and `TRAFILATURA_URL`, not only `systemctl --user`.
 - `install.sh` honours `TRAFILATURA_REF` to pin the checkout to a tag/commit
   (e.g. `TRAFILATURA_REF=v0.3.0 ./install.sh`).
 - Removed the shipped Hermes skill: the backend is transparent, so there is

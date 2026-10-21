@@ -3,14 +3,41 @@ set -euo pipefail
 
 echo "=== Trafilatura-Local Setup ==="
 echo "  - Updates the checkout and installs Python dependencies"
-echo "  - Configures and (re)starts the systemd --user service"
+echo "  - Configures and (re)starts the service"
 
 # Overridable: TRAFILATURA_DIR (checkout path), TRAFILATURA_PORT, TRAFILATURA_REF
-# (pin the checkout to a tag/commit), PYTHON.
+# (pin the checkout to a tag/commit), PYTHON, TRAFILATURA_MODE (auto|systemd|none).
 DIR="${TRAFILATURA_DIR:-$HOME/projects/trafilatura-local}"
 VENV="$DIR/venv"
 PORT="${TRAFILATURA_PORT:-8990}"
 PYTHON="${PYTHON:-python3}"
+MODE="${TRAFILATURA_MODE:-auto}"
+
+# `auto` picks systemd when a user manager is reachable, and falls back to a
+# plain background process otherwise (containers, CI, WSL without systemd).
+# `none` installs the checkout and the venv but starts nothing — the caller
+# supervises the service itself.
+case "$MODE" in
+    auto|systemd|none) ;;
+    *) echo "Unknown TRAFILATURA_MODE='$MODE' (expected auto, systemd or none)" >&2; exit 1 ;;
+esac
+
+have_systemd() {
+    command -v systemctl >/dev/null 2>&1 || return 1
+    systemctl --user daemon-reload >/dev/null 2>&1 || return 1
+    return 0
+}
+
+if [ "$MODE" = auto ]; then
+    if have_systemd; then
+        MODE=systemd
+    else
+        MODE=none
+        echo "No systemd user manager available — installing without a service unit."
+        echo "Start the service yourself, e.g.:"
+        echo "  TRAFILATURA_DIR='$DIR' TRAFILATURA_PORT='$PORT' $DIR/venv/bin/python $DIR/server.py"
+    fi
+fi
 
 # 0. The service needs CPython >= 3.10.
 if ! "$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
@@ -56,36 +83,48 @@ echo "Installing dependencies from $(basename "$REQ")..."
 "$VENV/bin/python" -m pip install --quiet -r "$REQ"
 
 # 4. systemd user unit (path and port substituted in, so a custom DIR/PORT works).
-echo "Installing systemd service..."
-mkdir -p "$HOME/.config/systemd/user"
-sed -e "s|%h/projects/trafilatura-local|$DIR|g" \
-    -e "s|^Environment=PORT=.*|Environment=PORT=$PORT|" \
-    "$DIR/trafilatura-local.service" \
-    > "$HOME/.config/systemd/user/trafilatura-local.service"
-systemctl --user daemon-reload
+if [ "$MODE" = systemd ]; then
+    echo "Installing systemd service..."
+    mkdir -p "$HOME/.config/systemd/user"
+    sed -e "s|%h/projects/trafilatura-local|$DIR|g" \
+        -e "s|^Environment=PORT=.*|Environment=PORT=$PORT|" \
+        "$DIR/trafilatura-local.service" \
+        > "$HOME/.config/systemd/user/trafilatura-local.service"
+    systemctl --user daemon-reload
 
-# 5. Enable and (re)start.
-echo "Enabling and starting service..."
-systemctl --user enable trafilatura-local.service
-systemctl --user restart trafilatura-local.service
+    # 5. Enable and (re)start.
+    echo "Enabling and starting service..."
+    systemctl --user enable trafilatura-local.service
+    systemctl --user restart trafilatura-local.service
 
-# 6. Verify: health endpoint, then one real extraction.
-sleep 2
-if ! systemctl --user is-active trafilatura-local.service >/dev/null 2>&1; then
-    echo "Service failed to start. Check: systemctl --user status trafilatura-local.service" >&2
-    exit 1
-fi
-curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:$PORT/health"
-echo
-curl --fail --silent --show-error --max-time 30 \
-    -H 'Content-Type: application/json' \
-    -d '{"urls":["https://example.com"],"max_chars":2000}' \
-    "http://127.0.0.1:$PORT/extract" >/dev/null
-echo "Extraction check OK"
+    # 6. Verify: health endpoint, then one real extraction.
+    sleep 2
+    if ! systemctl --user is-active trafilatura-local.service >/dev/null 2>&1; then
+        echo "Service failed to start. Check: systemctl --user status trafilatura-local.service" >&2
+        exit 1
+    fi
+    curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:$PORT/health"
+    echo
+    curl --fail --silent --show-error --max-time 30 \
+        -H 'Content-Type: application/json' \
+        -d '{"urls":["https://example.com"],"max_chars":2000}' \
+        "http://127.0.0.1:$PORT/extract" >/dev/null
+    echo "Extraction check OK"
 
-# 7. Startup before login needs lingering (a hint, not a failure).
-if command -v loginctl >/dev/null 2>&1 \
-   && ! { loginctl show-user "$USER" 2>/dev/null | grep -q 'Linger=yes'; }; then
-    echo "To start the service before login: sudo loginctl enable-linger $USER"
+    # 7. Startup before login needs lingering (a hint, not a failure).
+    if command -v loginctl >/dev/null 2>&1 \
+       && ! { loginctl show-user "$USER" 2>/dev/null | grep -q 'Linger=yes'; }; then
+        echo "To start the service before login: sudo loginctl enable-linger $USER"
+    fi
+else
+    # 4b. No service manager: the checkout and the venv are installed, the
+    # caller starts the process. Verify the venv can serve a request so a
+    # broken install is caught here rather than at the first web_extract.
+    echo "Verifying the venv can serve requests..."
+    "$VENV/bin/python" -c 'import trafilatura, fastapi, uvicorn, httpx, lxml' \
+        || { echo "venv dependencies are incomplete" >&2; exit 1; }
+    echo "venv OK — start the service with:"
+    echo "  TRAFILATURA_DIR='$DIR' TRAFILATURA_PORT='$PORT' $VENV/bin/python $DIR/server.py"
+    echo "then check: curl --fail http://127.0.0.1:$PORT/health"
 fi
 echo "Done."
