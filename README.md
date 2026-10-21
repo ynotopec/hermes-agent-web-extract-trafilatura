@@ -163,6 +163,36 @@ Extraction runs in a worker thread so it does not block the event loop. This
 improves responsiveness but does not promise CPU parallelism or a hard deadline
 for the parser. Worker processes would be needed for hard parser timeouts.
 
+## Kubernetes deployment
+
+`k8s/` deploys the service as a Deployment (`trafilatura-service`) behind a
+ClusterIP Service named `trafilatura` on port 8990, so that a Hermes pod in
+the same namespace reaches it through the discovery variables described above.
+
+```bash
+./k8s/deploy.sh demo1
+```
+
+Design choices:
+
+- **Code and pinned dependencies travel in a ConfigMap** (`server.py`,
+  `extraction.py`, `requirements.lock`). An initContainer installs the locked
+  dependencies into a shared volume; the application container serves directly
+  from it. A `pip install` on the serving path outlasts the liveness probe and
+  produces a restart loop (the pod is killed while still installing).
+- **Plain `python:3.12-slim` image.** The cluster's internal registry is not
+  pullable from the kubelet — the node resolver does not answer for service
+  names and containerd has no insecure-registry entry — so a locally built
+  image cannot be consumed by the cluster as-is.
+- **`startupProbe`** on `/health` gates the liveness and readiness probes
+  while the dependencies are being installed.
+- Two replicas, `runAsNonRoot`, read-only root filesystem, all capabilities
+  dropped.
+- The extraction runs on the **serving** path only against public
+  destinations: internal and private IPs are rejected (see *Limits and
+  security*), so the service cannot be used to reach cluster-internal
+  endpoints.
+
 ## Validation
 
 ```bash
