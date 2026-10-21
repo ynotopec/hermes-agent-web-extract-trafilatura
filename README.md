@@ -183,11 +183,25 @@ Design choices:
 - **Plain `python:3.12-slim` image.** The cluster's internal registry is not
   pullable from the kubelet — the node resolver does not answer for service
   names and containerd has no insecure-registry entry — so a locally built
-  image cannot be consumed by the cluster as-is.
+  image cannot be consumed by the cluster as-is. The `Dockerfile` at the
+  repository root builds that image (verified: health check, non-root user,
+  real extraction); it becomes usable as soon as the registry is reachable
+  from the kubelet.
 - **`startupProbe`** on `/health` gates the liveness and readiness probes
   while the dependencies are being installed.
+- The pod template is annotated with the checksum of the sources
+  (`trafilatura.infocepo.com/code-sha256`). A ConfigMap change does **not**
+  restart the pods that mount it, so without this annotation the Deployment
+  would report "successfully rolled out" while the running pods kept serving
+  the previous code. The checksum makes the rollout follow the code, and stay
+  put when the code does not change.
+- The post-deploy health check compares the version reported by `/health`
+  with the version of the source that was just deployed, so a stale pod
+  fails the deployment instead of passing it.
 - Two replicas, `runAsNonRoot`, read-only root filesystem, all capabilities
   dropped.
+- The manifests carry no `namespace:` field: the target namespace is passed
+  with `kubectl -n`, so the same manifests can be applied to any namespace.
 - The extraction runs on the **serving** path only against public
   destinations: internal and private IPs are rejected (see *Limits and
   security*), so the service cannot be used to reach cluster-internal
