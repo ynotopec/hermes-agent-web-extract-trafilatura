@@ -4,7 +4,11 @@ Wraps the local HTTP service (:8990) as a Hermes web-extract backend. Static
 HTML only: no JavaScript rendering, PDFs, or anti-bot bypasses.
 
 Config: ``web.extract_backend: trafilatura``. No API key. Service URL via
-``TRAFILATURA_URL`` (default ``http://127.0.0.1:8990``).
+``TRAFILATURA_URL`` (default ``http://127.0.0.1:8990``). When that variable is
+unset, the provider resolves the service through Kubernetes discovery
+(``TRAFILATURA_SERVICE_HOST`` / ``TRAFILATURA_SERVICE_PORT``) before falling
+back to the loopback default, so a pod running next to a ``trafilatura``
+service reaches it without extra configuration.
 
 Resilience: a URL the local service returns empty (or errors on) falls back to
 the Firecrawl keyless cloud extractor, so JS-heavy / blocked pages do not come
@@ -15,12 +19,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 from agent.web_search_provider import WebSearchProvider, get_provider_env
+
+from .service_url import resolve_service_url
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +38,12 @@ def _base_url() -> str:
         val = get_provider_env("TRAFILATURA_URL")
     except Exception:  # noqa: BLE001 — config layer optional
         val = ""
-    return (val or os.getenv("TRAFILATURA_URL") or _DEFAULT_URL).rstrip("/") or _DEFAULT_URL
+    if val and val.strip():
+        return val.strip().rstrip("/") or _DEFAULT_URL
+    # No explicit URL: fall back to Kubernetes service discovery, then the
+    # loopback default. A pod next to a `trafilatura` service reaches it
+    # without any extra configuration.
+    return resolve_service_url()
 
 
 def _page(url: str, title: str, content: str, *, error: Optional[str] = None, source_url: Optional[str] = None) -> Dict[str, Any]:
@@ -85,7 +95,9 @@ class TrafilaturaLocalProvider(WebSearchProvider):
             return [
                 _page(u, "", "", error=(
                     f"Trafilatura-Local service unreachable at {base} ({exc}). "
-                    "Start it with `systemctl --user start trafilatura-local.service`."
+                    "Start it (systemd: `systemctl --user start trafilatura-local.service`; "
+                    "otherwise: `venv/bin/python server.py`), or point TRAFILATURA_URL at a "
+                    "running instance."
                 ))
                 for u in urls
             ]

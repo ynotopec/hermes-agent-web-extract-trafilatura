@@ -22,6 +22,24 @@ A user service starts with the user manager. For startup before login, enable
 lingering with `sudo loginctl enable-linger USER` (the installer prints this
 when lingering is off); `enable` alone does not guarantee startup before login.
 
+### Hosts without systemd (containers, CI, WSL)
+
+When no systemd user manager is reachable, the installer skips the unit and
+installs only the checkout and the virtualenv; it prints the command to start
+the service yourself:
+
+```bash
+TRAFILATURA_DIR=~/projects/trafilatura-local \
+TRAFILATURA_PORT=8990 \
+~/projects/trafilatura-local/venv/bin/python ~/projects/trafilatura-local/server.py
+```
+
+Force the behaviour with `TRAFILATURA_MODE=systemd|none|auto` (default
+`auto`). The service then runs as an ordinary background process: keep it
+alive with whatever supervises your host (s6, supervisord, an init script)
+and point the provider at it with `TRAFILATURA_URL` when it is not on
+`127.0.0.1:8990`.
+
 Alternatively:
 
 ```bash
@@ -60,7 +78,13 @@ hermes gateway restart                    # a running gateway keeps its provider
 ```
 
 `./hermes/install.sh` copies `hermes/plugins/web/trafilatura/` to
-`~/.hermes/plugins/web/trafilatura/`. The provider calls this service over
+`~/.hermes/plugins/web/trafilatura/`, enables the plugin, sets
+`web.extract_backend: trafilatura` and verifies the CLI lists the plugin. It
+finds the Hermes CLI via `$HERMES_CLI`, then `hermes` on `PATH`, then
+`python -m hermes_cli.main` — the CLI is not always on `PATH` (containers,
+source installs), and skipping the enable step leaves `web_extract` failing
+with "no registered web extract provider has that name".
+The provider calls this service over
 loopback and falls back to the Firecrawl keyless cloud extractor when a page
 comes back empty (JS-heavy or blocked pages), so listings never come back thin.
 User plugins are disabled by default — `hermes plugins enable web/trafilatura`
@@ -72,10 +96,24 @@ transparent, so nothing special is required at extraction time.
 ```bash
 curl 'http://127.0.0.1:8990/extract?url=https://example.com'
 curl --fail -H 'Content-Type: application/json' \
-  -d '{"urls":["https://example.com"],"format":"markdown","max_chars":15000}' \
-  http://127.0.0.1:8990/extract
+    -d '{"urls":["https://example.com"],"format":"markdown","max_chars":15000}' \
+    http://127.0.0.1:8990/extract
 python3 web_fetch.py https://example.com --format plain --limit 15000
 ```
+
+### Reaching the service
+
+The provider resolves the service URL in this order:
+
+1. `TRAFILATURA_URL` — explicit override, e.g. `http://extractor:9000`.
+2. Kubernetes service discovery: `TRAFILATURA_SERVICE_HOST` and
+   `TRAFILATURA_SERVICE_PORT`, which Kubernetes injects into every pod of the
+   namespace that owns a service named `trafilatura`. A Hermes pod running
+   next to that service therefore finds it with no extra configuration.
+3. `http://127.0.0.1:8990` — the loopback default.
+
+Set `TRAFILATURA_URL` to override the discovery when the service sits behind
+another address.
 
 POST formats: `markdown`, `txt`, `html`. Results preserve input order and have
 `url`, `title` (from page metadata, empty when unavailable), `content`, `error`,
