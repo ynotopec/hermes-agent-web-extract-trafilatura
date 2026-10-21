@@ -231,3 +231,22 @@ async def test_extraction_does_not_block_health(monkeypatch):
             finally:
                 release.set()
                 await job
+
+
+async def test_health_reports_the_application_version(monkeypatch):
+    """`/health` must read the version from the app, not from a literal.
+
+    The deployment script compares the version reported by `/health` with the
+    one declared by the app in the source it just deployed. If the endpoint
+    carried its own literal, the two could drift apart and that comparison
+    would compare unrelated constants. Mutating the app version makes the
+    difference observable: a duplicated literal would ignore the change.
+    """
+    monkeypatch.setattr(server.app, "version", "9.9.9-sentinel")
+    async with server.lifespan(server.app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=server.app), base_url="http://test") as client:
+            response = await client.get("/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["version"] == "9.9.9-sentinel"
+    assert body["status"] == "ok"

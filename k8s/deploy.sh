@@ -45,10 +45,17 @@ echo "==> Waiting for rollout"
 kubectl -n "$NS" rollout status deploy/trafilatura-service --timeout=300s
 
 echo "==> Health check"
-# The expected version is read from the source that was just deployed, so the
-# check verifies that the running service serves THIS code and not a pod
-# left over from a previous rollout.
-EXPECTED_VERSION="$(grep -oE 'version="[0-9]+\.[0-9]+\.[0-9]+"' "$REPO/server.py" | head -1 | cut -d'"' -f2)"
+# The expected version is read from the FastAPI app definition in the source
+# that was just deployed, so the check verifies that the running service
+# serves THIS code and not a pod left over from a previous rollout. The
+# anchor is the app definition, not any `version=` occurrence: the health
+# endpoint reports app.version, so the two must be read from the same place.
+EXPECTED_VERSION="$(grep -oE 'FastAPI\([^)]*version="[0-9]+\.[0-9]+\.[0-9]+"' "$REPO/server.py" \
+  | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+if [ -z "$EXPECTED_VERSION" ]; then
+  echo "ERROR: could not read the app version from $REPO/server.py" >&2
+  exit 1
+fi
 echo "    expected version: $EXPECTED_VERSION"
 kubectl -n "$NS" run trafilatura-health --rm -i --restart=Never \
   --image=python:3.12-slim --override-type=strategic \

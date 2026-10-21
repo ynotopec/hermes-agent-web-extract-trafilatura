@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Kubernetes deployment** (`k8s/`): the service runs as a Deployment behind
+  a ClusterIP Service named `trafilatura` on port 8990. The code and the
+  pinned dependency tree travel in a ConfigMap, and an initContainer installs
+  the dependencies into a shared volume, so the application container never
+  runs `pip install` on the serving path — a pip install there outlasts the
+  liveness probe and produces a restart loop (249 restarts over 50 days on
+  the previous deployment). Each source revision gets an immutable ConfigMap
+  named after its checksum, so `kubectl rollout undo` restores the matching
+  sources and dependency lock.
+- The `/health` endpoint reports the application version instead of a
+  duplicated literal, so the version served and the version declared by the
+  app cannot drift apart. The deployment script reads the expected version
+  from the app definition and fails the deployment when the running service
+  reports a different one.
 - The provider resolves the service through Kubernetes discovery
   (`TRAFILATURA_SERVICE_HOST` / `TRAFILATURA_SERVICE_PORT`) when
   `TRAFILATURA_URL` is unset, before falling back to `127.0.0.1:8990`. A pod

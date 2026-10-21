@@ -69,7 +69,11 @@ class ExtractRequest(BaseModel):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "trafilatura-local", "version": "0.3.0",
+    # The version comes from the app itself: a duplicated literal here would
+    # drift from the FastAPI version and from the source the deployment
+    # script compares against, and the post-deploy health check would then
+    # compare two unrelated constants.
+    return {"status": "ok", "service": "trafilatura-local", "version": app.version,
             "dependencies": {"trafilatura": trafilatura.__version__}}
 
 
